@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+  sql:
+    init:
+      mode: always
+logging:
+  level:
+    com.px.base: DEBUG
+    org.hibernate.SQL: DEBUG
