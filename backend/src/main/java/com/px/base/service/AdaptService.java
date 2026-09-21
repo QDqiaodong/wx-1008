@@ -3,9 +3,11 @@ package com.px.base.service;
 import com.px.base.dto.AdaptResultDTO;
 import com.px.base.entity.AdaptLog;
 import com.px.base.entity.Anchor;
+import com.px.base.entity.AnchorOccupancy;
 import com.px.base.entity.FlightRoute;
 import com.px.base.entity.RouteAnchor;
 import com.px.base.repository.AdaptLogRepository;
+import com.px.base.repository.AnchorOccupancyRepository;
 import com.px.base.repository.AnchorRepository;
 import com.px.base.repository.FlightRouteRepository;
 import com.px.base.repository.RouteAnchorRepository;
@@ -30,6 +32,7 @@ public class AdaptService {
     private final AnchorRepository anchorRepository;
     private final FlightRouteRepository flightRouteRepository;
     private final AdaptLogRepository adaptLogRepository;
+    private final AnchorOccupancyRepository anchorOccupancyRepository;
 
     @Transactional
     public AdaptResultDTO bindAnchor(Long routeId, Long anchorId) {
@@ -65,6 +68,18 @@ public class AdaptService {
                     .reason("锚点已绑定该航线")
                     .build();
         }
+
+        // 单锚点唯一占用：已被别的启用航线主占则拒绝（与成组配桩同一约束，旧入口也不能绕过）
+        Optional<AnchorOccupancy> occupied = anchorOccupancyRepository.findByAnchorIdForUpdate(anchorId);
+        if (occupied.isPresent() && !occupied.get().getRouteId().equals(routeId)) {
+            return AdaptResultDTO.builder()
+                    .valid(false)
+                    .routeId(routeId)
+                    .anchorId(anchorId)
+                    .reason(String.format("唯一占用冲突：锚点%s已被启用航线%s主占，同一时间不能再配给本航线",
+                            anchor.getAnchorCode(), occupied.get().getRouteCode()))
+                    .build();
+        }
         
         boolean valid = validateAdapt(route, anchor);
         
@@ -95,6 +110,14 @@ public class AdaptService {
         }
         
         RouteAnchor saved = routeAnchorRepository.save(routeAnchor);
+
+        // 同步主占表（主键=锚点ID），保证唯一占用在两个入口都成立
+        AnchorOccupancy occupancy = anchorOccupancyRepository.findById(anchorId)
+                .orElseGet(() -> AnchorOccupancy.builder().anchorId(anchorId).build());
+        occupancy.setRouteId(routeId);
+        occupancy.setRouteCode(route.getRouteCode());
+        occupancy.setBindId(saved.getId());
+        anchorOccupancyRepository.save(occupancy);
         
         String reason = String.format("锚点%s适配气流区间[%.2f-%.2f]覆盖航线气流强度%.2fm/s",
                 anchor.getAnchorCode(), anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(), route.getWindSpeed());
@@ -154,6 +177,13 @@ public class AdaptService {
         routeAnchor.setStatus(0);
         routeAnchor.setUnbindTime(LocalDateTime.now());
         routeAnchorRepository.save(routeAnchor);
+
+        // 释放主占（仅当主占确属该航线时才删，避免误删已被他人重新占用的记录）
+        anchorOccupancyRepository.findById(anchorId).ifPresent(o -> {
+            if (o.getRouteId().equals(routeId)) {
+                anchorOccupancyRepository.deleteById(anchorId);
+            }
+        });
         
         String reason = "手动解绑";
         if (route != null && anchor != null) {
@@ -241,6 +271,14 @@ public class AdaptService {
                 routeAnchor.setStatus(0);
                 routeAnchor.setUnbindTime(LocalDateTime.now());
                 routeAnchorRepository.save(routeAnchor);
+
+                // 自动解绑同样释放主占
+                Long anchorId = anchor.getId();
+                anchorOccupancyRepository.findById(anchorId).ifPresent(o -> {
+                    if (o.getRouteId().equals(routeId)) {
+                        anchorOccupancyRepository.deleteById(anchorId);
+                    }
+                });
                 
                 String reason = String.format("航线气流参数更新，锚点%s适配气流上限%.2fm/s小于新气流强度%.2fm/s，自动解绑",
                         anchor.getAnchorCode(), anchor.getMaxWindSpeed(), newWindSpeed);

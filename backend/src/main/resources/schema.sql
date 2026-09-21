@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS route_anchor (
     UNIQUE KEY uk_route_anchor (route_id, anchor_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='航线锚点绑定表';
 
+-- 锚点唯一主占表：anchor_id 作主键，从数据库层强制"一个锚点同一时间只服役一条启用航线"
+CREATE TABLE IF NOT EXISTS anchor_occupancy (
+    anchor_id BIGINT PRIMARY KEY COMMENT '锚点ID(主键即唯一占用约束)',
+    route_id BIGINT NOT NULL COMMENT '当前服役航线ID',
+    route_code VARCHAR(50) NOT NULL COMMENT '当前服役航线编号',
+    bind_id BIGINT COMMENT '对应绑定关系ID',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '占用时间',
+    INDEX idx_occ_route_id (route_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='锚点唯一主占表';
+
 CREATE TABLE IF NOT EXISTS adapt_log (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     route_id BIGINT NOT NULL COMMENT '航线ID',

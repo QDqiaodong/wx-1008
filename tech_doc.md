@@ -722,3 +722,55 @@ px-base-system/
 ├── .env
 └── tech_doc.md
 ```
+
+## 十二、航线成组配桩「预演 + 提交」能力
+
+运营先选一条航线，一次性勾选多个地面锚点组成一套配桩方案；系统先做一轮预演体检，确认无误后才允许提交落库。预演与提交调用**同一套判定引擎**（`rule/GroupBindingEvaluator#evaluate`），并采用同一种回退策略，从代码层杜绝"预演说能配、提交又放行别的"。
+
+### 12.1 多约束判定（缺一不可）
+
+对每个锚点独立判定，逐条给出判定码与中文原因：
+
+1. **气流区间真正包住**：`anchor.min_wind_speed <= route.wind_speed`（`WIND_MIN`，下限也查）且 `anchor.max_wind_speed >= route.wind_speed`（`WIND_MAX`）。旧逻辑只比上限，已堵上"只适配大风的锚点配微风航线"被误放行的口子。
+2. **承重达标（等级表单一事实来源 `rule/WindWeightRule`）**：
+   - `WEIGHT`：锚点承重 ≥ 航线当前风级最低承重——微风 500、轻风 800、和风 1200、强风 1800、疾风 2500 kg；
+   - `WEIGHT_LEVEL`：当锚点适配下限高于航线气流（区间向下都够不着）时，承重还须达到其**起始适配风级**的等级门槛。典型样本"只适配强风(下限10)、承重 600kg"配微风：同时命中 `WIND_MIN` 与 `WEIGHT_LEVEL`（强风需 1800kg，差在等级要求上），不会被微风 500 的低门槛放行；而宽区间全能锚不会被误拒。
+3. **单锚点唯一占用**（`OCCUPIED`）：一个锚点同一时间只能真正服役于一条启用航线，由新表 `anchor_occupancy`（`anchor_id` 作主键）在数据库层强制；同航线重复配桩记 `ALREADY_BOUND`。
+4. 整套层面另给"总承重预算"：合格锚点承重合计 ≥ 当前风级单锚点门槛 × 锚点数（页面与接口均展示）。
+
+### 12.2 一致策略：整套全成或全回退（ALL_OR_NOTHING）
+
+勾选中只要有一个锚点不合格，提交时**整套回退、一条绑定都不落库**，并在页面/接口逐条列出不合格原因；只有全部合格且整套承重预算达标才一次性整体落库。该策略在预演与提交两处完全一致，页面用醒目提示讲清后果（不采用"合格先落、不合格二次确认"的混合口径）。
+
+### 12.3 并发唯一占用
+
+提交在单一事务内：按 `anchorId` 升序对锚点行加悲观写锁（`findByIdForUpdate`，统一加锁顺序防死锁）→ 锁内对主占行 `FOR UPDATE` 复判 → 插入 `anchor_occupancy`。两个运营并发抢同一稀缺锚点时，先锁到者成功；后到者读到主占被判 `OCCUPIED`，或在更弱隔离的库上由**主键/唯一约束兜底**抛 `DataIntegrityViolationException`，服务层补偿缓存并用同一引擎按最新占用复判，返回明确"占用冲突 + 被哪条航线占用"，**最终库里只留一条绑定**。
+
+### 12.4 缓存与数据库一致回滚
+
+- 提交成功：绑定关系、唯一主占、BIND 流水落库后，把锚点承重/气流写入既有三个 SortedSet（`anchor:weight`、`anchor:wind:min`、`anchor:wind:max`，member 为锚点编号）。
+- 任一步落库失败：数据库事务整体回滚；服务层用**写前快照**（`AnchorRankCacheService.snapshot/compensate`）把本次已写入缓存的 member 逐条恢复——写前不存在则移除、写前已存在则恢复旧分值，杜绝"缓存有、库里没有"的脏数据；无关锚点缓存不受影响。
+- 留痕：配上写 `BIND`；被拒写 `REJECT`；并发冲突写 `OCCUPY_CONFLICT`；落库失败写带补偿说明的 `REJECT`。拒绝/失败流水用 `REQUIRES_NEW` 独立事务，业务回滚也不丢痕，reason 中写明命中的判定码。
+
+### 12.5 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/group-binding/rules` | 风级→最低承重对照表 |
+| POST | `/api/group-binding/rehearse` | 预演体检（不落库），返回整套+逐条结论 |
+| POST | `/api/group-binding/submit` | 提交；合格整套落库，不合格/冲突/失败均 `committed=false` 且一条不落 |
+
+前端新增页面「成组配桩预演」（`frontend/src/views/GroupBind.vue`，路由 `/group-binding`）。
+
+### 12.6 本地免容器验收（local profile）
+
+生产仍走 docker compose 的 MySQL；本地可免安装数据库，用 H2(MySQL 兼容模式) + 真实 Redis 启动：
+
+```bash
+SPRING_PROFILES_ACTIVE=local mvn spring-boot:run
+# 制造"提交中途落库失败"，验证 DB 回滚 + 缓存补偿：
+PX_FAULT_ANCHOR_CODE=<锚点编号> SPRING_PROFILES_ACTIVE=local mvn spring-boot:run
+```
+
+local profile 启动时幂等灌入验收样本（含 A-SF600「只适配强风、600kg」、稀缺锚 A-SCARCE-1800），并把启用锚点全量初始化进 Redis 排序缓存。
+

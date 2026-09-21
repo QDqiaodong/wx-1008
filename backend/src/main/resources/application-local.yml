@@ -1,0 +1,33 @@
+# 本地 / 验收专用 profile：免安装 MySQL，用 H2(MySQL 兼容模式) 即可真实启动；
+# Redis 仍连接真实实例（本机 6379）。生产(docker compose)继续使用 application-prod.yml 的 MySQL。
+spring:
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:file:/workspace/runtime/h2/px_base;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  sql:
+    init:
+      mode: never
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      timeout: 6000ms
+
+logging:
+  level:
+    com.px.base: INFO
+
+# 验收用故障注入开关：设为某个锚点编号后，提交含该锚点的方案会在其写库写缓存后人为失败，
+# 验证 DB 回滚 + Redis 缓存补偿。默认关闭；仅在做"中途落库失败"验收时通过环境变量打开。
+px:
+  binding:
+    fault-after-cache-anchor-code: ${PX_FAULT_ANCHOR_CODE:}

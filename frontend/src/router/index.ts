@@ -22,6 +22,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/Adapt.vue')
   },
   {
+    path: '/group-binding',
+    name: 'GroupBind',
+    component: () => import('../views/GroupBind.vue')
+  },
+  {
     path: '/logs',
     name: 'Logs',
     component: () => import('../views/Logs.vue')

@@ -100,6 +100,49 @@ export interface AdaptLog {
   createTime: string
 }
 
+export interface GroupAnchorResult {
+  anchorId: number
+  anchorCode: string
+  maxWeight: number
+  minWindSpeed: number
+  maxWindSpeed: number
+  eligible: boolean
+  failedChecks: string[]
+  reasons: string[]
+  occupiedByRouteCode: string | null
+}
+
+export interface GroupRehearseResult {
+  routeId: number
+  routeCode: string
+  routeName: string
+  routeWindSpeed: number
+  windLevel: string
+  requiredMinWeight: number
+  totalCount: number
+  eligibleCount: number
+  rejectedCount: number
+  eligibleTotalWeight: number
+  requiredTotalWeight: number
+  totalWeightBudgetOk: boolean
+  groupValid: boolean
+  policy: string
+  policyNotice: string
+  anchorResults: GroupAnchorResult[]
+  weightRuleTable: Record<string, number>
+}
+
+export interface GroupSubmitResult {
+  routeId: number
+  routeCode: string
+  committed: boolean
+  bindIds: number[]
+  submittedCount: number
+  rehearsal: GroupRehearseResult
+  message: string
+  logIds: number[]
+}
+
 export const anchorApi = {
   list: () => get<Anchor[]>('/anchor'),
   get: (id: number) => get<Anchor>(`/anchor/${id}`),
@@ -130,4 +173,12 @@ export const adaptApi = {
     return get<AdaptLog[]>(url)
   },
   bound: (routeId: number) => get<RouteAnchor[]>(`/adapt/bound/${routeId}`)
+}
+
+export const groupBindingApi = {
+  rules: () => get<Record<string, number>>('/group-binding/rules'),
+  rehearse: (routeId: number, anchorIds: number[], operator?: string) =>
+    post<GroupRehearseResult>('/group-binding/rehearse', { routeId, anchorIds, operator }),
+  submit: (routeId: number, anchorIds: number[], operator?: string) =>
+    post<GroupSubmitResult>('/group-binding/submit', { routeId, anchorIds, operator })
 }
