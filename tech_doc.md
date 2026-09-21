@@ -343,6 +343,31 @@ anchor (1) ──── (*) route_anchor ──── (*) flight_route (1)
 | /api/adapt/check | GET | AdaptController | 校验单个锚点是否适配航线 |
 | /api/adapt/recheck/{routeId} | POST | AdaptController | 重新校验航线所有锚点 |
 | /api/adapt/logs | GET | AdaptController | 查询适配调整流水 |
+| /api/adapt/bound/{routeId} | GET | AdaptController | 查询航线已绑定锚点 |
+
+### 5.4 航线成组配桩接口（预演 + 提交，同一套判定）
+
+| API路径 | HTTP方法 | 功能描述 |
+|---------|----------|----------|
+| /api/pile-plan/preview | POST | 一次性勾选多个锚点的预演体检（只读、不加锁、不落库、不留痕） |
+| /api/pile-plan/submit | POST | 同一套判定复核后整组落库；不合格整组回退并写 REJECT 流水 |
+
+请求体：
+```json
+{ "routeId": 1, "anchorIds": [11, 12, 13], "operator": "运营A", "simulateDbFailure": false }
+```
+
+判定同时守住三件彼此独立的事（实现集中于 `rule.AnchorGate` / `service.PilePlanService.evaluatePlan`，预演与提交共用，无两套口径）：
+
+1. **气流区间真正包住**：锚点适配下限 `<=` 航线气流 `<=` 锚点适配上限（下限、上限都查，修复历史只看上限问题）；
+2. **等级承重**：锚点最大承重 `>=` 航线气流等级查表最低承重（微风500/轻风800/和风1200/强风1800/疾风2500kg）；
+3. **单锚点唯一占用**：锚点仅在其他“启用航线”上有 status=1 绑定即判 OCCUPIED；另有整套方案总承重预算 = 等级最低承重 × 勾选数量，仅合格锚点计入实际总承重。
+
+**提交策略（整组回退 · 全有或全无）**：任一锚点不合格/被占用或总承重预算不足，则整组一条不落库，不提供“先落合格的”。
+
+**并发**：提交按锚点ID升序获取 Redis 锚点锁（`service.AnchorLockService`，token 安全释放），数据库以生成列唯一索引 `uk_active_anchor` 兜底，保证同一锚点同时只有一条生效绑定，落败方收到 OCCUPIED/LOCK_BUSY 并写 REJECT 流水。
+
+**缓存一致性**：提交成功才把三个排序 ZSET 与库对齐；落库失败按提交前快照仅回退本方案碰过的成员，REJECT 流水用独立事务提交，杜绝“缓存有、库里没有”。`simulateDbFailure=true` 为验收用的落库失败注入开关。
 
 #### 请求/响应示例
 

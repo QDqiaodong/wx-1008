@@ -6,6 +6,7 @@ const menuItems = [
   { path: '/anchor', label: '锚点管理' },
   { path: '/route', label: '航线管理' },
   { path: '/adapt', label: '适配校验' },
+  { path: '/pile', label: '航线成组配桩' },
   { path: '/logs', label: '流水记录' }
 ]
 </script>

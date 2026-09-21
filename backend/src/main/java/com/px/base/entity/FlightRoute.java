@@ -66,12 +66,7 @@ public class FlightRoute {
     }
 
     private String calculateWindLevel(BigDecimal windSpeed) {
-        if (windSpeed == null) return "微风";
-        double speed = windSpeed.doubleValue();
-        if (speed < 3) return "微风";
-        if (speed < 6) return "轻风";
-        if (speed < 10) return "和风";
-        if (speed < 15) return "强风";
-        return "疾风";
+        // 统一走 WindLevel 规则表，避免实体与判定各算一套等级
+        return com.px.base.rule.WindLevel.fromSpeed(windSpeed).getLabel();
     }
 }

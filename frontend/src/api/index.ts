@@ -100,6 +100,41 @@ export interface AdaptLog {
   createTime: string
 }
 
+export interface PilePlanItem {
+  anchorId: number
+  anchorCode: string
+  maxWeight: number
+  minWindSpeed: number
+  maxWindSpeed: number
+  passed: boolean
+  failCodes: string[]
+  failReasons: string[]
+  occupiedByRouteCode: string | null
+  alreadyBound: boolean
+}
+
+export interface PilePlanResult {
+  valid: boolean
+  mode: 'PREVIEW' | 'SUBMIT'
+  routeId: number
+  routeCode: string
+  routeName: string
+  routeWindSpeed: number
+  windLevel: string
+  levelMinWeight: number
+  totalCount: number
+  passedCount: number
+  failedCount: number
+  requiredTotalWeight: number
+  actualTotalWeight: number
+  budgetEnough: boolean
+  budgetReason: string | null
+  items: PilePlanItem[]
+  summary: string
+  bindIds: number[] | null
+  logIds: number[] | null
+}
+
 export const anchorApi = {
   list: () => get<Anchor[]>('/anchor'),
   get: (id: number) => get<Anchor>(`/anchor/${id}`),
@@ -130,4 +165,16 @@ export const adaptApi = {
     return get<AdaptLog[]>(url)
   },
   bound: (routeId: number) => get<RouteAnchor[]>(`/adapt/bound/${routeId}`)
+}
+
+export interface PilePlanRequest {
+  routeId: number
+  anchorIds: number[]
+  operator?: string
+  simulateDbFailure?: boolean
+}
+
+export const pilePlanApi = {
+  preview: (data: PilePlanRequest) => post<PilePlanResult>('/pile-plan/preview', data),
+  submit: (data: PilePlanRequest) => post<PilePlanResult>('/pile-plan/submit', data)
 }

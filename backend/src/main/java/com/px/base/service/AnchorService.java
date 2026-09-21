@@ -11,7 +11,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -134,5 +136,64 @@ public class AnchorService {
         List<Anchor> anchors = anchorRepository.findByStatus(1);
         anchors.forEach(this::updateRedisCache);
         log.info("初始化Redis缓存, 共{}个锚点", anchors.size());
+    }
+
+    /**
+     * 对给定锚点的三个排序 ZSET 成员拍快照（含是否存在、旧 score），供提交失败时精确回滚。
+     */
+    public CacheSnapshot snapshot(List<Anchor> anchors) {
+        Map<String, Double> weight = new HashMap<>();
+        Map<String, Double> windMin = new HashMap<>();
+        Map<String, Double> windMax = new HashMap<>();
+        for (Anchor anchor : anchors) {
+            String code = anchor.getAnchorCode();
+            putScore(weight, code, REDIS_KEY_WEIGHT);
+            putScore(windMin, code, REDIS_KEY_WIND_MIN);
+            putScore(windMax, code, REDIS_KEY_WIND_MAX);
+        }
+        return new CacheSnapshot(weight, windMin, windMax);
+    }
+
+    private void putScore(Map<String, Double> target, String code, String key) {
+        Double score = redisTemplate.opsForZSet().score(key, code);
+        if (score != null) {
+            target.put(code, score);
+        }
+    }
+
+    /** 提交成功后把锚点承重与气流排序缓存与数据库写齐（与建档走同一份 ZADD 逻辑）。 */
+    public void syncCacheForBind(List<Anchor> anchors) {
+        anchors.forEach(this::updateRedisCache);
+    }
+
+    /**
+     * 提交中途落库失败时调用：仅把“本次方案碰过的锚点”在三个 ZSET 里的成员恢复到快照状态——
+     * 原本不存在的成员删掉，原本存在的成员还原旧 score。绝不扫描/删除别的方案或历史已存在的成员，
+     * 从而在回退本次脏写的同时，不影响其他锚点，杜绝“缓存有、库里没有”。
+     */
+    public void restoreCache(CacheSnapshot snapshot, List<Anchor> touched) {
+        restore(REDIS_KEY_WEIGHT, snapshot.weight(), touched);
+        restore(REDIS_KEY_WIND_MIN, snapshot.windMin(), touched);
+        restore(REDIS_KEY_WIND_MAX, snapshot.windMax(), touched);
+    }
+
+    private void restore(String key, Map<String, Double> before, List<Anchor> touched) {
+        for (Anchor anchor : touched) {
+            String code = anchor.getAnchorCode();
+            Double oldScore = before.get(code);
+            if (oldScore == null) {
+                // 提交前不存在该成员：本次是新写入，失败即删除
+                redisTemplate.opsForZSet().remove(key, code);
+            } else {
+                // 提交前已存在：还原旧分数
+                redisTemplate.opsForZSet().add(key, code, oldScore);
+            }
+        }
+    }
+
+    /** 三个排序 ZSET 的提交前快照。 */
+    public record CacheSnapshot(Map<String, Double> weight,
+                                Map<String, Double> windMin,
+                                Map<String, Double> windMax) {
     }
 }

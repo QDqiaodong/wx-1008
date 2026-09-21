@@ -66,11 +66,14 @@ public class AdaptService {
                     .build();
         }
         
-        boolean valid = validateAdapt(route, anchor);
-        
-        if (!valid) {
-            String reason = String.format("锚点%s适配气流上限%.2fm/s小于航线气流强度%.2fm/s，禁止绑定",
-                    anchor.getAnchorCode(), anchor.getMaxWindSpeed(), route.getWindSpeed());
+        List<com.px.base.rule.AnchorGate.GateFailure> gateFailures =
+                com.px.base.rule.AnchorGate.evaluate(anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(),
+                        anchor.getMaxWeight(), route.getWindSpeed());
+
+        if (!gateFailures.isEmpty()) {
+            String reason = "锚点" + anchor.getAnchorCode() + " 适配校验未通过："
+                    + gateFailures.stream().map(com.px.base.rule.AnchorGate.GateFailure::message)
+                            .reduce((a, b) -> a + "；" + b).orElse("不适配");
             return AdaptResultDTO.builder()
                     .valid(false)
                     .routeId(routeId)
@@ -193,19 +196,24 @@ public class AdaptService {
         Anchor anchor = anchorRepository.findById(anchorId)
                 .orElseThrow(() -> new IllegalArgumentException("锚点不存在: " + anchorId));
         
-        boolean valid = validateAdapt(route, anchor);
-        
+        List<com.px.base.rule.AnchorGate.GateFailure> gateFailures =
+                com.px.base.rule.AnchorGate.evaluate(anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(),
+                        anchor.getMaxWeight(), route.getWindSpeed());
+
         String reason;
-        if (valid) {
-            reason = String.format("锚点%s适配气流区间[%.2f-%.2f]覆盖航线气流强度%.2fm/s",
-                    anchor.getAnchorCode(), anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(), route.getWindSpeed());
+        if (gateFailures.isEmpty()) {
+            reason = String.format("锚点%s适配气流区间[%.2f-%.2f]覆盖航线气流强度%.2fm/s，承重%.0fkg满足%s等级要求",
+                    anchor.getAnchorCode(), anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(),
+                    route.getWindSpeed(), anchor.getMaxWeight(),
+                    com.px.base.rule.WindLevel.fromSpeed(route.getWindSpeed()).getLabel());
         } else {
-            reason = String.format("锚点%s适配气流上限%.2fm/s小于航线气流强度%.2fm/s",
-                    anchor.getAnchorCode(), anchor.getMaxWindSpeed(), route.getWindSpeed());
+            reason = "锚点" + anchor.getAnchorCode() + " 适配校验未通过："
+                    + gateFailures.stream().map(com.px.base.rule.AnchorGate.GateFailure::message)
+                            .reduce((a, b) -> a + "；" + b).orElse("不适配");
         }
-        
+
         return AdaptResultDTO.builder()
-                .valid(valid)
+                .valid(gateFailures.isEmpty())
                 .routeId(routeId)
                 .anchorId(anchorId)
                 .reason(reason)
@@ -234,16 +242,20 @@ public class AdaptService {
         for (RouteAnchor routeAnchor : boundAnchors) {
             Anchor anchor = anchorRepository.findById(routeAnchor.getAnchorId()).orElse(null);
             if (anchor == null) continue;
-            
-            boolean valid = validateAdapt(route, anchor);
-            
-            if (!valid) {
+
+            List<com.px.base.rule.AnchorGate.GateFailure> gateFailures =
+                    com.px.base.rule.AnchorGate.evaluate(anchor.getMinWindSpeed(), anchor.getMaxWindSpeed(),
+                            anchor.getMaxWeight(), route.getWindSpeed());
+
+            if (!gateFailures.isEmpty()) {
                 routeAnchor.setStatus(0);
                 routeAnchor.setUnbindTime(LocalDateTime.now());
                 routeAnchorRepository.save(routeAnchor);
-                
-                String reason = String.format("航线气流参数更新，锚点%s适配气流上限%.2fm/s小于新气流强度%.2fm/s，自动解绑",
-                        anchor.getAnchorCode(), anchor.getMaxWindSpeed(), newWindSpeed);
+
+                String detail = gateFailures.stream().map(com.px.base.rule.AnchorGate.GateFailure::message)
+                        .reduce((a, b) -> a + "；" + b).orElse("不再适配");
+                String reason = String.format("航线气流参数更新为%.2fm/s后，锚点%s不再适配，自动解绑：%s",
+                        newWindSpeed, anchor.getAnchorCode(), detail);
                 
                 AdaptLog logEntry = AdaptLog.builder()
                         .routeId(routeId)
@@ -275,10 +287,6 @@ public class AdaptService {
                 .logIds(logIds)
                 .reason(String.format("重新校验完成，共解绑%d个不适配锚点", unbindCount))
                 .build();
-    }
-
-    private boolean validateAdapt(FlightRoute route, Anchor anchor) {
-        return anchor.getMaxWindSpeed().compareTo(route.getWindSpeed()) >= 0;
     }
 
     public List<RouteAnchor> getBoundAnchors(Long routeId) {

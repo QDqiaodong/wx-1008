@@ -22,6 +22,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/Adapt.vue')
   },
   {
+    path: '/pile',
+    name: 'PilePlan',
+    component: () => import('../views/PilePlan.vue')
+  },
+  {
     path: '/logs',
     name: 'Logs',
     component: () => import('../views/Logs.vue')

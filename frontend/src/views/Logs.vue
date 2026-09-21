@@ -36,16 +36,18 @@ const getOperationTypeLabel = (type: string) => {
   const map: Record<string, string> = {
     BIND: '绑定',
     UNBIND: '解绑',
-    REBIND: '重新绑定'
+    REBIND: '重新绑定',
+    REJECT: '配桩被拒'
   }
   return map[type] || type
 }
 
 const getOperationTypeColor = (type: string): 'success' | 'danger' | 'warning' | 'info' => {
-  const map: Record<string, 'success' | 'danger' | 'warning'> = {
+  const map: Record<string, 'success' | 'danger' | 'warning' | 'info'> = {
     BIND: 'success',
     UNBIND: 'danger',
-    REBIND: 'warning'
+    REBIND: 'warning',
+    REJECT: 'danger'
   }
   return map[type] || 'info'
 }

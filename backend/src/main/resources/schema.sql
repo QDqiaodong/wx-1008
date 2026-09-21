@@ -38,12 +38,14 @@ CREATE TABLE IF NOT EXISTS route_anchor (
     bind_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '绑定时间',
     unbind_time DATETIME COMMENT '解绑时间',
     status TINYINT DEFAULT 1 COMMENT '状态:0-解绑,1-绑定',
+    active_anchor_id BIGINT GENERATED ALWAYS AS (CASE WHEN status = 1 THEN anchor_id ELSE NULL END) VIRTUAL COMMENT '生效中的锚点(仅绑定态非空),用于单锚点唯一占用',
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_route_id (route_id),
     INDEX idx_anchor_id (anchor_id),
     INDEX idx_status (status),
-    UNIQUE KEY uk_route_anchor (route_id, anchor_id)
+    UNIQUE KEY uk_route_anchor (route_id, anchor_id),
+    UNIQUE KEY uk_active_anchor (active_anchor_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='航线锚点绑定表';
 
 CREATE TABLE IF NOT EXISTS adapt_log (
