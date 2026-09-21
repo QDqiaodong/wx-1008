@@ -8,7 +8,6 @@ import com.px.base.service.AnchorRankCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +21,6 @@ import java.util.List;
  * 应同时暴露"气流下限不匹配"与"承重达不到强风等级1800"。
  */
 @Component
-@Profile("local")
 @Order(10)
 @RequiredArgsConstructor
 @Slf4j
